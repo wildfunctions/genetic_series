@@ -1,0 +1,16 @@
+# Build output
+genetic_series
+
+# LaTeX output
+*.tex
+*.pdf
+*.aux
+*.log
+
+# Go
+go.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
