@@ -18,11 +18,12 @@ import (
 
 // Engine runs the evolutionary search.
 type Engine struct {
-	cfg      Config
-	pool     pool.Pool
-	strategy strategy.Strategy
-	target   *big.Float
-	rng      *rand.Rand
+	cfg       Config
+	pool      pool.Pool
+	strategy  strategy.Strategy
+	target    *big.Float
+	targetF64 float64
+	rng       *rand.Rand
 }
 
 // New creates a new engine from the given config.
@@ -46,11 +47,12 @@ func New(cfg Config) (*Engine, error) {
 	}
 
 	return &Engine{
-		cfg:      cfg,
-		pool:     p,
-		strategy: s,
-		target:   c.Value,
-		rng:      rand.New(rand.NewSource(seed)),
+		cfg:       cfg,
+		pool:      p,
+		strategy:  s,
+		target:    c.Value,
+		targetF64: c.Float64Value,
+		rng:       rand.New(rand.NewSource(seed)),
 	}, nil
 }
 
@@ -283,12 +285,68 @@ func (e *Engine) Run() FinalReport {
 	return finalReport
 }
 
-// evaluatePopulation evaluates all candidates in parallel.
+// evaluatePopulation evaluates all candidates in parallel, using a two-phase
+// float64 fast path when F64PromotionThreshold > 0. Phase 1 evaluates all
+// candidates at float64 speed. Phase 2 promotes only candidates that cleared
+// the digit threshold to the expensive big.Float path.
 func (e *Engine) evaluatePopulation(pop []*series.Candidate) ([]series.Fitness, []series.EvalResult) {
 	n := len(pop)
 	fitnesses := make([]series.Fitness, n)
 	results := make([]series.EvalResult, n)
 
+	threshold := e.cfg.F64PromotionThreshold
+	if threshold <= 0 {
+		// Disabled — fall through to big.Float for everyone.
+		e.evaluateBigFloat(pop, fitnesses, results, nil)
+		return fitnesses, results
+	}
+
+	workers := e.cfg.Workers
+	if workers <= 0 {
+		workers = 1
+	}
+
+	// Phase 1: float64 eval for ALL candidates.
+	promote := make([]bool, n)
+
+	type job struct {
+		idx       int
+		candidate *series.Candidate
+	}
+
+	jobs := make(chan job, n)
+	var wg sync.WaitGroup
+
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				r64 := series.EvaluateCandidateF64(j.candidate, e.cfg.MaxTerms)
+				f64 := series.ComputeFitnessF64(j.candidate, r64, e.targetF64, e.cfg.Weights)
+				fitnesses[j.idx] = f64
+				if f64.CorrectDigits >= threshold {
+					promote[j.idx] = true
+				}
+			}
+		}()
+	}
+
+	for i, c := range pop {
+		jobs <- job{idx: i, candidate: c}
+	}
+	close(jobs)
+	wg.Wait()
+
+	// Phase 2: big.Float eval for promoted candidates only.
+	e.evaluateBigFloat(pop, fitnesses, results, promote)
+
+	return fitnesses, results
+}
+
+// evaluateBigFloat runs big.Float evaluation on selected candidates.
+// If promote is nil, all candidates are evaluated. Otherwise only promote[i]==true.
+func (e *Engine) evaluateBigFloat(pop []*series.Candidate, fitnesses []series.Fitness, results []series.EvalResult, promote []bool) {
 	workers := e.cfg.Workers
 	if workers <= 0 {
 		workers = 1
@@ -299,7 +357,7 @@ func (e *Engine) evaluatePopulation(pop []*series.Candidate) ([]series.Fitness, 
 		candidate *series.Candidate
 	}
 
-	jobs := make(chan job, n)
+	jobs := make(chan job, len(pop))
 	var wg sync.WaitGroup
 
 	for w := 0; w < workers; w++ {
@@ -316,12 +374,12 @@ func (e *Engine) evaluatePopulation(pop []*series.Candidate) ([]series.Fitness, 
 	}
 
 	for i, c := range pop {
-		jobs <- job{idx: i, candidate: c}
+		if promote == nil || promote[i] {
+			jobs <- job{idx: i, candidate: c}
+		}
 	}
 	close(jobs)
 	wg.Wait()
-
-	return fitnesses, results
 }
 
 // copyFile copies src to dst, creating or overwriting dst.

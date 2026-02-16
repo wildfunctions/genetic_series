@@ -145,6 +145,38 @@ func TestEngine_InvalidPool(t *testing.T) {
 	}
 }
 
+// TestEngine_F64Disabled verifies that threshold=0 (no float64 fast path) still works.
+func TestEngine_F64Disabled(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Target = "e"
+	cfg.Population = 30
+	cfg.Generations = 5
+	cfg.MaxTerms = 128
+	cfg.Seed = 42
+	cfg.StagnationLimit = 5
+	cfg.F64PromotionThreshold = 0 // disabled
+
+	e, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := e.Run()
+
+	if report.BestCandidate == "" {
+		t.Error("Expected a best candidate with F64 disabled")
+	}
+	if report.BestFitness.Combined <= -1e9 {
+		t.Error("Expected non-worst fitness with F64 disabled")
+	}
+	if len(report.Attempts) == 0 {
+		t.Error("Expected at least one attempt")
+	}
+
+	t.Logf("F64 disabled: fitness=%.4f, digits=%.1f, candidate=%s",
+		report.BestFitness.Combined, report.BestFitness.CorrectDigits, report.BestCandidate)
+}
+
 func TestEngine_JSONFormat(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Target = "pi"

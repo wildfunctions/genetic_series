@@ -136,3 +136,75 @@ func countCorrectDigits(computed, target *big.Float) float64 {
 	digits := -math.Log10(errFloat)
 	return math.Max(0, digits)
 }
+
+// maxDigitsF64 is the precision cap for float64 digit counting (~15 significant digits).
+const maxDigitsF64 = 15
+
+// ComputeFitnessF64 scores a candidate using float64 evaluation results.
+func ComputeFitnessF64(c *Candidate, result EvalResultF64, targetF64 float64, weights FitnessWeights) Fitness {
+	if !result.OK {
+		return WorstFitness()
+	}
+
+	if !expr.ContainsVar(c.Numerator) && !expr.ContainsVar(c.Denominator) {
+		return WorstFitness()
+	}
+
+	if !expr.ContainsVar(c.Denominator) {
+		return WorstFitness()
+	}
+
+	if !result.Converged {
+		return WorstFitness()
+	}
+
+	// Reject divergent series
+	absDiff := math.Abs(result.PartialSum - targetF64)
+	absTgt := math.Abs(targetF64)
+	if absTgt > 0 {
+		ratio := absDiff / absTgt
+		if math.IsInf(ratio, 0) || math.IsNaN(ratio) || ratio > 1e50 {
+			return WorstFitness()
+		}
+	} else {
+		if math.IsInf(absDiff, 0) || math.IsNaN(absDiff) || absDiff > 1e50 {
+			return WorstFitness()
+		}
+	}
+
+	correctDigits := countCorrectDigitsF64(result.PartialSum, targetF64)
+	complexity := c.Complexity()
+	simplicity := 1.0 / math.Max(complexity, 1.0)
+
+	penaltyScale := math.Min(correctDigits, 5.0) / 5.0
+
+	combined := weights.Accuracy*correctDigits -
+		weights.Complexity*complexity*penaltyScale
+
+	return Fitness{
+		Combined:      combined,
+		CorrectDigits: correctDigits,
+		Simplicity:    simplicity,
+	}
+}
+
+// countCorrectDigitsF64 counts matching decimal digits using float64 arithmetic.
+func countCorrectDigitsF64(computed, target float64) float64 {
+	diff := math.Abs(computed - target)
+	if diff == 0 {
+		return maxDigitsF64
+	}
+
+	absTgt := math.Abs(target)
+	if absTgt == 0 {
+		return math.Max(0, math.Min(-math.Log10(diff), maxDigitsF64))
+	}
+
+	relErr := diff / absTgt
+	if relErr == 0 {
+		return maxDigitsF64
+	}
+
+	digits := -math.Log10(relErr)
+	return math.Max(0, math.Min(digits, maxDigitsF64))
+}

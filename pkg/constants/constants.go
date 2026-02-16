@@ -7,8 +7,9 @@ const DefaultPrecision = 512
 
 // Constant represents a named mathematical constant with a high-precision value.
 type Constant struct {
-	Name  string
-	Value *big.Float
+	Name         string
+	Value        *big.Float
+	Float64Value float64
 }
 
 var registry = map[string]Constant{}
@@ -74,7 +75,8 @@ func register(name, value string) {
 	if err != nil {
 		panic("bad constant " + name + ": " + err.Error())
 	}
-	registry[name] = Constant{Name: name, Value: f}
+	f64, _ := f.Float64()
+	registry[name] = Constant{Name: name, Value: f, Float64Value: f64}
 }
 
 // Get returns the constant with the given name, or nil if not found.

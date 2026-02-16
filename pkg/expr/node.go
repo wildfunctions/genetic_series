@@ -5,6 +5,7 @@ import "math/big"
 // ExprNode is the interface for all expression tree nodes.
 type ExprNode interface {
 	Eval(n *big.Float, prec uint) (*big.Float, bool)
+	EvalF64(n float64) (float64, bool)
 	String() string
 	LaTeX() string
 	Clone() ExprNode

@@ -21,9 +21,10 @@ type Config struct {
 	Format      string // "text" or "json"
 	Verbose     bool
 	Workers     int
-	Weights         series.FitnessWeights
-	StagnationLimit int
-	OutDir          string
+	Weights               series.FitnessWeights
+	StagnationLimit       int
+	OutDir                string
+	F64PromotionThreshold float64 // min float64 digits to promote to big.Float (0 = disabled)
 }
 
 // DefaultConfig returns a config with sensible defaults.
@@ -41,7 +42,8 @@ func DefaultConfig() Config {
 		Format:      "text",
 		Verbose:     false,
 		Workers:     runtime.NumCPU(),
-		Weights:         series.DefaultWeights(),
-		StagnationLimit: 200,
+		Weights:               series.DefaultWeights(),
+		StagnationLimit:       200,
+		F64PromotionThreshold: 4.0,
 	}
 }
